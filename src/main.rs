@@ -5,20 +5,42 @@ use reqwest::multipart;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
-use tokio::time::sleep;
+use std::io::Write;
 
 const SERVICE_URL: &str = "http://localhost:8000";
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Whisper transcription client", long_about = None)]
 struct Args {
-    /// Path to the audio file
-    #[arg(name = "FILE")]
-    file: PathBuf,
+    /// Command to execute (transcribe, list-jobs, status)
+    #[arg(value_enum)]
+    command: Command,
+
+    /// Path to audio file or directory of audio files (required for transcribe command)
+    #[arg(name = "PATH", required_if_eq("command", "transcribe"))]
+    path: Option<PathBuf>,
+
+    /// Process directory recursively (only valid with directory input)
+    #[arg(short, long)]
+    recursive: bool,
+
+    /// Job ID (required for status command)
+    #[arg(name = "JOB_ID", long, required_if_eq("command", "status"))]
+    job_id: Option<String>,
 
     /// Show detailed output including segments
     #[arg(short, long)]
     verbose: bool,
+}
+
+#[derive(clap::ValueEnum, Clone, Debug)]
+enum Command {
+    /// Transcribe an audio file or directory
+    Transcribe,
+    /// List all jobs
+    ListJobs,
+    /// Get status of a specific job
+    Status,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -87,47 +109,100 @@ fn is_supported_audio_format(path: &PathBuf) -> bool {
         .unwrap_or(false)
 }
 
-async fn check_job_status(job_id: &str) -> Result<JobResponse> {
-    let client = reqwest::Client::new();
-    let mut attempts = 0;
-    let max_attempts = 60; // 5 minutes with 5 second intervals
-
-    while attempts < max_attempts {
-        let response = client
-            .get(&format!("{}/status/{}", SERVICE_URL, job_id))
-            .send()
-            .await
-            .context("Failed to check job status")?;
-
-        if !response.status().is_success() {
-            anyhow::bail!(
-                "Service error: {}",
-                response.text().await.unwrap_or_default()
-            );
+fn collect_audio_files(path: &PathBuf, recursive: bool) -> Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    
+    if path.is_file() {
+        if is_supported_audio_format(path) {
+            files.push(path.clone());
         }
-
-        let job_status: JobResponse = response
-            .json()
-            .await
-            .context("Failed to parse job status response")?;
-
-        match job_status.status.as_str() {
-            "completed" => {
-                return Ok(job_status);
-            }
-            "failed" => {
-                anyhow::bail!("Transcription failed: {}", job_status.message);
-            }
-            _ => {
-                print!("\r{} {}", "⋯".blue(), job_status.message);
-                std::io::Write::flush(&mut std::io::stdout())?;
-                sleep(Duration::from_secs(5)).await;
-                attempts += 1;
+    } else if path.is_dir() {
+        for entry in std::fs::read_dir(path)? {
+            let entry = entry?;
+            let path = entry.path();
+            
+            if path.is_file() && is_supported_audio_format(&path) {
+                files.push(path);
+            } else if recursive && path.is_dir() {
+                files.extend(collect_audio_files(&path, true)?);
             }
         }
     }
+    
+    Ok(files)
+}
 
-    anyhow::bail!("Timeout waiting for transcription to complete")
+async fn check_job_status(job_id: &str) -> Result<JobResponse> {
+    get_job_status(job_id).await
+}
+
+async fn list_jobs() -> Result<Vec<JobResponse>> {
+    let client = reqwest::Client::new();
+    let response = client
+        .get(&format!("{}/jobs", SERVICE_URL))
+        .send()
+        .await
+        .context("Failed to list jobs")?;
+
+    if !response.status().is_success() {
+        anyhow::bail!(
+            "Service error: {}",
+            response.text().await.unwrap_or_default()
+        );
+    }
+
+    let jobs: Vec<JobResponse> = response
+        .json()
+        .await
+        .context("Failed to parse jobs response")?;
+
+    Ok(jobs)
+}
+
+async fn terminate_job(job_id: &str) -> Result<JobResponse> {
+    let client = reqwest::Client::new();
+    let response = client
+        .delete(&format!("{}/jobs/{}", SERVICE_URL, job_id))
+        .send()
+        .await
+        .context("Failed to terminate job")?;
+
+    if !response.status().is_success() {
+        anyhow::bail!(
+            "Service error: {}",
+            response.text().await.unwrap_or_default()
+        );
+    }
+
+    let job_status: JobResponse = response
+        .json()
+        .await
+        .context("Failed to parse job status response")?;
+
+    Ok(job_status)
+}
+
+async fn get_job_status(job_id: &str) -> Result<JobResponse> {
+    let client = reqwest::Client::new();
+    let response = client
+        .get(&format!("{}/status/{}", SERVICE_URL, job_id))
+        .send()
+        .await
+        .context("Failed to get job status")?;
+
+    if !response.status().is_success() {
+        anyhow::bail!(
+            "Service error: {}",
+            response.text().await.unwrap_or_default()
+        );
+    }
+
+    let job_status: JobResponse = response
+        .json()
+        .await
+        .context("Failed to parse job status response")?;
+
+    Ok(job_status)
 }
 
 async fn transcribe_file(path: &PathBuf) -> Result<(TranscriptionResponse, JobResponse)> {
@@ -186,14 +261,42 @@ async fn transcribe_file(path: &PathBuf) -> Result<(TranscriptionResponse, JobRe
         .await
         .context("Failed to parse service response")?;
 
-    // Poll for job completion
-    let mut job_status = check_job_status(&job_response.job_id).await?;
-    let transcription = job_status.result.take()
-        .ok_or_else(|| anyhow::anyhow!("No result in completed job"))?;
+    println!("{} Job started with ID: {}", "→".blue(), job_response.job_id);
 
-    println!("\r{} Transcription processing complete!", "✓".green());
+    // Set up polling with Ctrl+C handling
+    let job_id = job_response.job_id.clone();
+    let mut interval = tokio::time::interval(Duration::from_secs(5));
 
-    Ok((transcription, job_status))
+    loop {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                println!("\n{} Received interrupt, terminating job...", "⚠".yellow());
+                if let Ok(terminated) = terminate_job(&job_id).await {
+                    println!("{} Job terminated: {}", "✓".green(), terminated.message);
+                }
+                anyhow::bail!("Job terminated by user");
+            }
+            _ = interval.tick() => {
+                let status = check_job_status(&job_id).await?;
+                print!("\r{} {}", "⋯".blue(), status.message);
+                std::io::stdout().flush()?;
+
+                match status.status.as_str() {
+                    "completed" => {
+                        if let Some(ref result) = status.result {
+                            println!("\n{} Transcription processing complete!", "✓".green());
+                            return Ok((result.clone(), status));
+                        }
+                        anyhow::bail!("No result in completed job");
+                    }
+                    "failed" => {
+                        anyhow::bail!("\nTranscription failed: {}", status.message);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
 }
 
 fn save_markdown_response(
@@ -245,6 +348,44 @@ fn save_markdown_response(
     Ok(output_path)
 }
 
+async fn process_batch(files: Vec<PathBuf>, verbose: bool) -> Result<()> {
+    let total = files.len();
+    println!("\n{} Found {} files to process", "→".blue(), total);
+    
+    for (index, file) in files.into_iter().enumerate() {
+        println!("\n{} Processing file {} of {}: {}", "→".blue(), index + 1, total, file.display());
+        
+        match transcribe_file(&file).await {
+            Ok((transcription, job_info)) => {
+                let output_path = save_markdown_response(&transcription, &file, &job_info)?;
+                println!("{} Saved transcript to: {}", "✓".green(), output_path.display());
+
+                if verbose {
+                    println!("\n{}", "Transcription:".bold());
+                    println!("{}\n", transcription.text);
+
+                    println!("{}", "Segments:".bold());
+                    for segment in transcription.segments {
+                        println!(
+                            "{}s -> {}s: {}",
+                            segment.start, segment.end, segment.text
+                        );
+                    }
+                    println!();
+                }
+            }
+            Err(e) => {
+                println!("\n{} Error processing {}: {}", "✗".red(), file.display(), e);
+                // Continue with next file instead of exiting
+                continue;
+            }
+        }
+    }
+    
+    println!("\n{} Batch processing complete!", "✓".green());
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
@@ -262,33 +403,106 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
 
-    // Transcribe file
-    match transcribe_file(&args.file).await {
-        Ok((transcription, job_info)) => {
-            // Save markdown response
-            let output_path = save_markdown_response(&transcription, &args.file, &job_info)?;
-            println!("{} Saved transcript to: {}", "✓".green(), output_path.display());
-
-            if args.verbose {
-                println!("\n{}", "Transcription:".bold());
-                println!("{}\n", transcription.text);
-
-                println!("{}", "Segments:".bold());
-                for segment in transcription.segments {
-                    println!(
-                        "{}s -> {}s: {}",
-                        segment.start, segment.end, segment.text
-                    );
-                }
-                println!();
+    match args.command {
+        Command::Transcribe => {
+            let path = args.path.unwrap(); // Safe due to required_if_eq
+            
+            // Collect files to process
+            let files = collect_audio_files(&path, args.recursive)?;
+            
+            if files.is_empty() {
+                println!("{} No compatible audio files found", "✗".red());
+                std::process::exit(1);
             }
-
-            println!("{} Transcription complete!", "✓".green());
-            Ok(())
+            
+            process_batch(files, args.verbose).await?;
         }
-        Err(e) => {
-            println!("\n{} Error: {}", "✗".red(), e);
-            std::process::exit(1);
+        Command::ListJobs => {
+            match list_jobs().await {
+                Ok(jobs) => {
+                    println!("\n{}", "Jobs:".bold());
+                    for job in jobs {
+                        let status_color = match job.status.as_str() {
+                            "completed" => "✓".green(),
+                            "failed" => "✗".red(),
+                            _ => "⋯".blue(),
+                        };
+                        
+                        println!(
+                            "{} {} - {} {}",
+                            status_color,
+                            job.job_id,
+                            job.status,
+                            job.filename.unwrap_or_default()
+                        );
+                        
+                        if args.verbose {
+                            if let Some(created_at) = job.created_at {
+                                let datetime = chrono::DateTime::from_timestamp(created_at as i64, 0)
+                                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                                    .unwrap_or_else(|| "Unknown".to_string());
+                                println!("   Created: {}", datetime);
+                            }
+                            if !job.message.is_empty() {
+                                println!("   Message: {}", job.message);
+                            }
+                            println!();
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("\n{} Error: {}", "✗".red(), e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Command::Status => {
+            let job_id = args.job_id.unwrap(); // Safe due to required_if_eq
+            match get_job_status(&job_id).await {
+                Ok(job) => {
+                    let status_color = match job.status.as_str() {
+                        "completed" => "✓".green(),
+                        "failed" => "✗".red(),
+                        _ => "⋯".blue(),
+                    };
+                    
+                    println!("\n{} Status for job {}:", status_color, job.job_id);
+                    println!("Status: {}", job.status);
+                    if let Some(filename) = job.filename {
+                        println!("File: {}", filename);
+                    }
+                    if let Some(created_at) = job.created_at {
+                        let datetime = chrono::DateTime::from_timestamp(created_at as i64, 0)
+                            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                            .unwrap_or_else(|| "Unknown".to_string());
+                        println!("Created: {}", datetime);
+                    }
+                    if !job.message.is_empty() {
+                        println!("Message: {}", job.message);
+                    }
+                    
+                    if args.verbose && job.status == "completed" {
+                        if let Some(result) = job.result {
+                            println!("\n{}", "Transcription:".bold());
+                            println!("{}\n", result.text);
+
+                            println!("{}", "Segments:".bold());
+                            for segment in result.segments {
+                                println!(
+                                    "{}s -> {}s: {}",
+                                    segment.start, segment.end, segment.text
+                                );
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("\n{} Error: {}", "✗".red(), e);
+                    std::process::exit(1);
+                }
+            }
         }
     }
+
+    Ok(())
 }
