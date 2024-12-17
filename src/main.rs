@@ -1,6 +1,5 @@
 use anyhow::Result;
 use colored::*;
-use std::io::Write;
 use whisper_client::{
     Args, Command,
     check_service, list_jobs, get_job_status, transcribe_file,

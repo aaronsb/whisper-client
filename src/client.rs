@@ -3,13 +3,16 @@ use reqwest::multipart;
 use std::path::PathBuf;
 use std::time::Duration;
 use crate::models::{JobResponse, TranscriptionResponse};
+use crate::config::Config;
 
-pub const SERVICE_URL: &str = "http://localhost:8000";
+lazy_static::lazy_static! {
+    static ref CONFIG: Config = Config::load().expect("Failed to load config");
+}
 
 pub async fn check_service() -> Result<()> {
     let client = reqwest::Client::new();
     let response = client
-        .get(&format!("{}/health", SERVICE_URL))
+        .get(&format!("{}/health", CONFIG.service_url))
         .timeout(Duration::from_secs(5))
         .send()
         .await
@@ -25,7 +28,7 @@ pub async fn check_service() -> Result<()> {
 pub async fn get_job_status(job_id: &str) -> Result<JobResponse> {
     let client = reqwest::Client::new();
     let response = client
-        .get(&format!("{}/status/{}", SERVICE_URL, job_id))
+        .get(&format!("{}/status/{}", CONFIG.service_url, job_id))
         .send()
         .await
         .context("Failed to get job status")?;
@@ -48,7 +51,7 @@ pub async fn get_job_status(job_id: &str) -> Result<JobResponse> {
 pub async fn list_jobs() -> Result<Vec<JobResponse>> {
     let client = reqwest::Client::new();
     let response = client
-        .get(&format!("{}/jobs", SERVICE_URL))
+        .get(&format!("{}/jobs", CONFIG.service_url))
         .send()
         .await
         .context("Failed to list jobs")?;
@@ -71,7 +74,7 @@ pub async fn list_jobs() -> Result<Vec<JobResponse>> {
 pub async fn terminate_job(job_id: &str) -> Result<JobResponse> {
     let client = reqwest::Client::new();
     let response = client
-        .delete(&format!("{}/jobs/{}", SERVICE_URL, job_id))
+        .delete(&format!("{}/jobs/{}", CONFIG.service_url, job_id))
         .send()
         .await
         .context("Failed to terminate job")?;
@@ -120,7 +123,7 @@ pub async fn transcribe_file(path: &PathBuf) -> Result<(TranscriptionResponse, J
 
     let client = reqwest::Client::new();
     let response = client
-        .post(&format!("{}/transcribe/", SERVICE_URL))
+        .post(&format!("{}/transcribe/", CONFIG.service_url))
         .multipart(form)
         .timeout(Duration::from_secs(3600))
         .send()

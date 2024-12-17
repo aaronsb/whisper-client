@@ -1,11 +1,13 @@
 mod client;
 mod models;
 mod utils;
+mod config;
 
 // Re-export types needed for the public API
-pub use client::{check_service, get_job_status, list_jobs, transcribe_file, SERVICE_URL};
+pub use client::{check_service, get_job_status, list_jobs, transcribe_file};
 pub use models::{FileInfo, JobResponse, Segment, TranscriptionResponse};
 pub use utils::{collect_audio_files, is_supported_audio_format, save_markdown_response};
+pub use config::Config;
 
 // Re-export command line types
 use clap::Parser;
