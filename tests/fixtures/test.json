@@ -1,0 +1,56 @@
+{
+  "text": " This is a test of the whisper transcription service. The quick brown fox dumps over the lazy dog.",
+  "segments": [
+    {
+      "id": 0,
+      "seek": 0,
+      "start": 0.0,
+      "end": 2.72,
+      "text": " This is a test of the whisper transcription service.",
+      "tokens": [
+        50364,
+        639,
+        307,
+        257,
+        1500,
+        295,
+        264,
+        26018,
+        35288,
+        2643,
+        13,
+        50500
+      ],
+      "temperature": 0.0,
+      "avg_logprob": -0.43479336225069487,
+      "compression_ratio": 1.1022727272727273,
+      "no_speech_prob": 0.019790109246969223
+    },
+    {
+      "id": 1,
+      "seek": 0,
+      "start": 2.72,
+      "end": 5.44,
+      "text": " The quick brown fox dumps over the lazy dog.",
+      "tokens": [
+        50500,
+        440,
+        1702,
+        6292,
+        21026,
+        11430,
+        82,
+        670,
+        264,
+        14847,
+        3000,
+        13,
+        50636
+      ],
+      "temperature": 0.0,
+      "avg_logprob": -0.43479336225069487,
+      "compression_ratio": 1.1022727272727273,
+      "no_speech_prob": 0.019790109246969223
+    }
+  ]
+}
