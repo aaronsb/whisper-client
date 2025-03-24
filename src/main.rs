@@ -2,7 +2,7 @@ use anyhow::Result;
 use colored::*;
 use whisper_client::{
     Args, Command,
-    check_service, list_jobs, get_job_status, transcribe_file,
+    check_service, list_jobs, get_job_status, transcribe_file, terminate_job,
     collect_audio_files, save_markdown_response,
 };
 use clap::Parser;
@@ -157,6 +157,24 @@ async fn main() -> Result<()> {
                 }
                 Err(e) => {
                     println!("\n{} Error: {}", "✗".red(), e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Command::Terminate => {
+            let job_id = args.job_id.unwrap(); // Safe due to required_if_eq
+            println!("\n{} Attempting to terminate job {}...", "→".blue(), job_id);
+            
+            match terminate_job(&job_id).await {
+                Ok(job) => {
+                    println!("{} Job terminated successfully", "✓".green());
+                    println!("Status: {}", job.status);
+                    if !job.message.is_empty() {
+                        println!("Message: {}", job.message);
+                    }
+                }
+                Err(e) => {
+                    println!("{} Error terminating job: {}", "✗".red(), e);
                     std::process::exit(1);
                 }
             }

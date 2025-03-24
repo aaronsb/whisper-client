@@ -8,6 +8,8 @@ A command-line client for transcribing audio files using OpenAI's Whisper model 
 - Support for batch processing directories of audio files
 - Track transcription job status
 - View job history
+- Terminate running jobs
+- Responsive to external state changes
 - Configurable service endpoint
 - Markdown output format
 
@@ -60,6 +62,8 @@ Edit this file to point to your whisper-service instance if it's running on a di
 
 ## Usage
 
+For detailed usage instructions, see the [usage guide](docs/usage.md).
+
 ### Transcribe a Single File
 ```bash
 whisper-client transcribe PATH_TO_FILE
@@ -90,6 +94,11 @@ whisper-client status --job-id JOB_ID
 whisper-client status --job-id JOB_ID -v
 ```
 
+### Terminate a Job
+```bash
+whisper-client terminate --job-id JOB_ID
+```
+
 ## Output
 
 Transcriptions are saved as markdown files next to the source audio files, containing:
@@ -114,6 +123,7 @@ The client supports common audio formats including:
 
 - Automatically retries failed connections
 - Graceful handling of service interruptions
+- Responsive to external state changes (e.g., jobs terminated via the server API)
 - Clear error messages for common issues
 - CTRL+C support for canceling running jobs
 

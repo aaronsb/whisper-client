@@ -27,3 +27,16 @@ Thumbs.db
 # Debug and logs
 *.log
 *.pdb
+
+# Audio files
+*.mp3
+*.wav
+*.m4a
+*.ogg
+*.flac
+
+# Transcription outputs (but not documentation)
+*.md
+!docs/**/*.md
+!README.md
+!LICENSE.md

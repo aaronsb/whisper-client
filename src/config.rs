@@ -10,7 +10,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            service_url: "http://localhost:8000".to_string(),
+            service_url: "http://localhost:9673".to_string(),
         }
     }
 }
@@ -56,7 +56,7 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = Config::default();
-        assert_eq!(config.service_url, "http://localhost:8000");
+        assert_eq!(config.service_url, "http://localhost:9673");
     }
 
     #[test]
@@ -72,7 +72,7 @@ mod tests {
         env::set_var("HOME", temp_dir.path());
 
         let config = Config::load().unwrap();
-        assert_eq!(config.service_url, "http://localhost:8000");
+        assert_eq!(config.service_url, "http://localhost:9673");
 
         // Verify file was created
         let config_path = temp_dir.path().join(".config").join("whisper-client").join("config.json");
