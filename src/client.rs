@@ -242,7 +242,19 @@ pub async fn transcribe_file(path: &PathBuf) -> Result<(TranscriptionResponse, J
                                 if let Some(ref result) = status.result {
                                     return Ok((result.clone(), status));
                                 }
-                                anyhow::bail!("No result in completed job");
+                                
+                                // If result is missing, try to fetch it with include_transcript=true
+                                match get_job_status(&job_id, true).await {
+                                    Ok(full_status) => {
+                                        if let Some(ref result) = full_status.result {
+                                            return Ok((result.clone(), full_status));
+                                        }
+                                        anyhow::bail!("No result in completed job, even after explicit fetch");
+                                    },
+                                    Err(e) => {
+                                        anyhow::bail!("Job completed but failed to fetch result: {}", e);
+                                    }
+                                }
                             }
                             "failed" => {
                                 progress_bar.abandon_with_message(format!("Failed: {}", status.message).red().to_string());
