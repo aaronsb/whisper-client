@@ -189,6 +189,7 @@ mod tests {
             }),
             created_at: Some(1234567890.0),
             filename: Some(String::from("test_audio.mp3")),
+            progress: None,
         };
 
         let output_path = save_markdown_response(

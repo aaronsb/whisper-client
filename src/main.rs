@@ -3,9 +3,94 @@ use colored::*;
 use whisper_client::{
     Args, Command,
     check_service, list_jobs, get_job_status, transcribe_file, terminate_job,
-    collect_audio_files, save_markdown_response,
+    collect_audio_files, save_markdown_response, Config,
 };
 use clap::Parser;
+use std::collections::HashMap;
+
+async fn display_service_info() -> Result<()> {
+    // Check service status
+    let service_status = match check_service().await {
+        Ok(_) => ("✓".green(), "Running"),
+        Err(_) => ("✗".red(), "Not available"),
+    };
+    
+    let config = Config::load()?;
+    println!("\n{} Service Status: {} {}", "🔍".blue(), service_status.0, service_status.1);
+    println!("   URL: {}", config.service_url);
+    
+    // Only try to get jobs if service is running
+    if service_status.1 == "Running" {
+        match list_jobs().await {
+            Ok(jobs) => {
+                // Count jobs by status
+                let mut status_counts: HashMap<String, usize> = HashMap::new();
+                for job in &jobs {
+                    *status_counts.entry(job.status.clone()).or_insert(0) += 1;
+                }
+                
+                // Display job summary
+                if !jobs.is_empty() {
+                    println!("\n{} Job Summary:", "📊".blue());
+                    for (status, count) in status_counts {
+                        let status_icon = match status.as_str() {
+                            "completed" => "✓".green(),
+                            "failed" => "✗".red(),
+                            "processing" => "⚙️".blue(),
+                            "queued" => "⏳".yellow(),
+                            _ => "•".normal(),
+                        };
+                        println!("   {} {} jobs {}", status_icon, count, status);
+                    }
+                    
+                    // Show most recent active jobs (up to 5)
+                    let active_jobs: Vec<_> = jobs.iter()
+                        .filter(|j| j.status == "processing" || j.status == "queued")
+                        .take(5)
+                        .collect();
+                    
+                    if !active_jobs.is_empty() {
+                        println!("\n{} Recent Active Jobs:", "🔄".blue());
+                        for job in active_jobs {
+                            let status_icon = if job.status == "processing" { "⚙️".blue() } else { "⏳".yellow() };
+                            println!(
+                                "   {} {} ({}) {}",
+                                status_icon,
+                                job.job_id,
+                                job.status,
+                                job.filename.clone().unwrap_or_default()
+                            );
+                        }
+                    }
+                } else {
+                    println!("\n{} No jobs found", "📊".blue());
+                }
+            }
+            Err(e) => {
+                println!("\n{} Could not retrieve jobs: {}", "⚠️".yellow(), e);
+            }
+        }
+    }
+    
+    // Display available commands
+    println!("\n{} Available Commands:", "📋".blue());
+    println!("   {} {:<12} - Convert audio file(s) to text", "🎵".green(), "transcribe");
+    println!("   {} {:<12} - View all transcription jobs", "📜".green(), "list-jobs");
+    println!("   {} {:<12} - Check status of a specific job", "🔍".green(), "status");
+    println!("   {} {:<12} - Cancel a running job", "🛑".green(), "terminate");
+    
+    println!("\n{} Example Usage:", "💡".yellow());
+    println!("   whisper-client transcribe audio.mp3");
+    println!("   whisper-client transcribe ./recordings/ --recursive");
+    println!("   whisper-client list-jobs");
+    println!("   whisper-client status --job-id <ID>");
+    println!("   whisper-client terminate --job-id <ID>");
+    
+    println!("\n{} For detailed help on any command:", "ℹ️".blue());
+    println!("   whisper-client <command> --help");
+    
+    Ok(())
+}
 
 async fn process_batch(files: Vec<std::path::PathBuf>, verbose: bool) -> Result<()> {
     let total = files.len();
@@ -51,20 +136,38 @@ async fn main() -> Result<()> {
 
     println!("\n{} {}", "🎤".blue(), "Whisper Transcription".bold());
 
-    // Check if service is running
-    if let Err(e) = check_service().await {
-        println!("{} Error: {}", "✗".red(), e);
-        println!(
-            "{} Start the service with: {}",
-            "↳".blue(),
-            "docker compose up -d".bold()
-        );
-        std::process::exit(1);
+    // Check if service is running for commands that need it
+    let needs_service_check = match args.command {
+        Some(Command::Info) => false, // Info command handles service check internally
+        None => false, // Default to Info command
+        _ => true, // All other commands need service check
+    };
+
+    if needs_service_check {
+        if let Err(e) = check_service().await {
+            println!("{} Error: {}", "✗".red(), e);
+            println!(
+                "{} Start the service with: {}",
+                "↳".blue(),
+                "docker compose up -d".bold()
+            );
+            std::process::exit(1);
+        }
     }
 
-    match args.command {
+    match args.command.unwrap_or(Command::Info) {
+        Command::Info => {
+            display_service_info().await?;
+        },
         Command::Transcribe => {
-            let path = args.path.unwrap(); // Safe due to required_if_eq
+            // Validate required arguments
+            if args.path.is_none() {
+                println!("{} Error: Missing required PATH argument for transcribe command", "✗".red());
+                println!("{} Usage: whisper-client transcribe <PATH>", "ℹ️".blue());
+                std::process::exit(1);
+            }
+            
+            let path = args.path.unwrap();
             
             // Collect files to process
             let files = collect_audio_files(&path, args.recursive)?;
@@ -116,8 +219,15 @@ async fn main() -> Result<()> {
             }
         }
         Command::Status => {
-            let job_id = args.job_id.unwrap(); // Safe due to required_if_eq
-            match get_job_status(&job_id).await {
+            // Validate required arguments
+            if args.job_id.is_none() {
+                println!("{} Error: Missing required --job-id argument for status command", "✗".red());
+                println!("{} Usage: whisper-client status --job-id <JOB_ID>", "ℹ️".blue());
+                std::process::exit(1);
+            }
+            
+            let job_id = args.job_id.unwrap();
+            match get_job_status(&job_id, true).await {
                 Ok(job) => {
                     let status_color = match job.status.as_str() {
                         "completed" => "✓".green(),
@@ -162,7 +272,14 @@ async fn main() -> Result<()> {
             }
         }
         Command::Terminate => {
-            let job_id = args.job_id.unwrap(); // Safe due to required_if_eq
+            // Validate required arguments
+            if args.job_id.is_none() {
+                println!("{} Error: Missing required --job-id argument for terminate command", "✗".red());
+                println!("{} Usage: whisper-client terminate --job-id <JOB_ID>", "ℹ️".blue());
+                std::process::exit(1);
+            }
+            
+            let job_id = args.job_id.unwrap();
             println!("\n{} Attempting to terminate job {}...", "→".blue(), job_id);
             
             match terminate_job(&job_id).await {

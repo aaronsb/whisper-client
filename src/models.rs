@@ -1,6 +1,15 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct Progress {
+    pub total_duration: f64,
+    pub processed_duration: f64,
+    pub total_chunks: i32,
+    pub processed_chunks: i32,
+    pub percentage: f64,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Segment {
     pub id: i32,
     pub seek: i32,
@@ -40,4 +49,6 @@ pub struct JobResponse {
     pub created_at: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress: Option<Progress>,
 }

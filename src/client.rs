@@ -4,6 +4,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 use crate::models::{JobResponse, TranscriptionResponse};
 use crate::config::Config;
+use indicatif::{ProgressBar, ProgressStyle};
+use colored::*;
 
 lazy_static::lazy_static! {
     static ref CONFIG: Config = Config::load().expect("Failed to load config");
@@ -27,10 +29,13 @@ pub async fn check_service() -> Result<()> {
     Ok(())
 }
 
-pub async fn get_job_status(job_id: &str) -> Result<JobResponse> {
+pub async fn get_job_status(job_id: &str, include_transcript: bool) -> Result<JobResponse> {
     let client = reqwest::Client::new();
     let response = client
-        .get(&format!("{}/status/{}", CONFIG.service_url, job_id))
+        .get(&format!("{}/status/{}?include_transcript={}", 
+            CONFIG.service_url, 
+            job_id,
+            include_transcript))
         .send()
         .await
         .context("Failed to get job status")?;
@@ -121,7 +126,7 @@ pub async fn terminate_job(job_id: &str) -> Result<JobResponse> {
 
 // Helper function to check if a job exists on the server
 async fn check_job_exists(job_id: &str) -> Result<bool> {
-    match get_job_status(job_id).await {
+    match get_job_status(job_id, false).await {
         Ok(_) => Ok(true),
         Err(e) => {
             // Check if the error is due to job not found (404)
@@ -187,10 +192,24 @@ pub async fn transcribe_file(path: &PathBuf) -> Result<(TranscriptionResponse, J
     let job_id = job_response.job_id.clone();
     let mut status_interval = tokio::time::interval(Duration::from_secs(5));
     let mut existence_check_interval = tokio::time::interval(Duration::from_secs(15));
+    
+    // Create a progress bar
+    let progress_bar = ProgressBar::new(100);
+    progress_bar.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {percent}% ({eta})")
+            .unwrap()
+            .progress_chars("#>-")
+    );
+    progress_bar.set_position(0);
+    
+    // Track the last reported progress to avoid duplicate updates
+    let mut last_progress_percent = 0.0;
 
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
+                progress_bar.abandon_with_message("Job terminated by user".red().to_string());
                 if let Ok(terminated) = terminate_job(&job_id).await {
                     anyhow::bail!("Job terminated: {}", terminated.message);
                 }
@@ -201,6 +220,7 @@ pub async fn transcribe_file(path: &PathBuf) -> Result<(TranscriptionResponse, J
                 match check_job_exists(&job_id).await {
                     Ok(exists) => {
                         if !exists {
+                            progress_bar.abandon_with_message("Job no longer exists on server".red().to_string());
                             anyhow::bail!("Job no longer exists on server. It may have been terminated externally.");
                         }
                     },
@@ -211,29 +231,77 @@ pub async fn transcribe_file(path: &PathBuf) -> Result<(TranscriptionResponse, J
                 }
             }
             _ = status_interval.tick() => {
-                match get_job_status(&job_id).await {
+                match get_job_status(&job_id, false).await {
                     Ok(status) => {
                         match status.status.as_str() {
                             "completed" => {
+                                // Complete the progress bar
+                                progress_bar.set_position(100);
+                                progress_bar.finish_with_message("Transcription completed!".green().to_string());
+                                
                                 if let Some(ref result) = status.result {
                                     return Ok((result.clone(), status));
                                 }
                                 anyhow::bail!("No result in completed job");
                             }
                             "failed" => {
+                                progress_bar.abandon_with_message(format!("Failed: {}", status.message).red().to_string());
                                 anyhow::bail!("Transcription failed: {}", status.message);
                             }
                             "terminated" => {
+                                progress_bar.abandon_with_message(format!("Terminated: {}", status.message).red().to_string());
                                 anyhow::bail!("Job was terminated: {}", status.message);
                             }
                             "cancelled" => {
+                                progress_bar.abandon_with_message(format!("Cancelled: {}", status.message).red().to_string());
                                 anyhow::bail!("Job was cancelled: {}", status.message);
                             }
-                            "processing" | "queued" => {
-                                // These are expected states, continue polling
+                            "processing" => {
+                                // Ensure we're using the progress bar style (in case we were in queued state before)
+                                progress_bar.set_style(
+                                    ProgressStyle::default_bar()
+                                        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {percent}% ({eta})")
+                                        .unwrap()
+                                        .progress_chars("#>-")
+                                );
+                                
+                                // Display progress information if available
+                                if let Some(ref progress) = status.progress {
+                                    // Only update if progress has changed
+                                    if (progress.percentage - last_progress_percent).abs() > 0.1 {
+                                        last_progress_percent = progress.percentage;
+                                        
+                                        // Update progress bar
+                                        progress_bar.set_position(progress.percentage as u64);
+                                        
+                                        // Set message with detailed info
+                                        progress_bar.set_message(format!(
+                                            "Chunks: {}/{} | Duration: {:.1}/{:.1}s",
+                                            progress.processed_chunks,
+                                            progress.total_chunks,
+                                            progress.processed_duration,
+                                            progress.total_duration
+                                        ));
+                                    }
+                                } else {
+                                    // If no progress info, just pulse the bar
+                                    progress_bar.set_message("Processing...".to_string());
+                                    progress_bar.inc(0);
+                                }
+                            }
+                            "queued" => {
+                                // Show a pulsing progress bar for queued state
+                                progress_bar.set_style(
+                                    ProgressStyle::default_spinner()
+                                        .template("{spinner:.yellow} {msg}")
+                                        .unwrap()
+                                );
+                                progress_bar.set_message("Queued: waiting to be processed".yellow().to_string());
+                                progress_bar.tick();
                             }
                             _ => {
-                                // Unknown state, log it but continue polling
+                                // Unknown state, show warning in progress bar
+                                progress_bar.set_message(format!("Unknown state: {}", status.status).yellow().to_string());
                                 eprintln!("Job {} in unknown state: {}", job_id, status.status);
                             }
                         }
@@ -241,9 +309,11 @@ pub async fn transcribe_file(path: &PathBuf) -> Result<(TranscriptionResponse, J
                     Err(e) => {
                         // If we can't get the status, the job might have been deleted
                         if e.to_string().contains("404") || e.to_string().contains("not found") {
+                            progress_bar.abandon_with_message("Job no longer exists on server".red().to_string());
                             anyhow::bail!("Job no longer exists on server. It may have been terminated externally.");
                         } else {
                             // For other errors, log and continue
+                            progress_bar.set_message(format!("Warning: {}", e).yellow().to_string());
                             eprintln!("Warning: Failed to get job status: {}", e);
                             // Continue polling, but don't fail immediately on temporary errors
                         }

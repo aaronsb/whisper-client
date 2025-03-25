@@ -14,13 +14,19 @@ use clap::Parser;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Whisper transcription client", long_about = None)]
+#[command(after_help = "Examples:
+  whisper-client transcribe audio.mp3
+  whisper-client transcribe ./recordings/ --recursive
+  whisper-client list-jobs
+  whisper-client status --job-id <ID>
+  whisper-client terminate --job-id <ID>")]
 pub struct Args {
-    /// Command to execute (transcribe, list-jobs, status, terminate)
+    /// Command to execute (transcribe, list-jobs, status, terminate, info)
     #[arg(value_enum)]
-    pub command: Command,
+    pub command: Option<Command>,
 
     /// Path to audio file or directory of audio files (required for transcribe command)
-    #[arg(name = "PATH", required_if_eq("command", "transcribe"))]
+    #[arg(name = "PATH")]
     pub path: Option<std::path::PathBuf>,
 
     /// Process directory recursively (only valid with directory input)
@@ -28,12 +34,24 @@ pub struct Args {
     pub recursive: bool,
 
     /// Job ID (required for status and terminate commands)
-    #[arg(name = "JOB_ID", long, required_if_eq("command", "status"), required_if_eq("command", "terminate"))]
+    #[arg(name = "JOB_ID", long)]
     pub job_id: Option<String>,
 
     /// Show detailed output including segments
     #[arg(short, long)]
     pub verbose: bool,
+}
+
+impl Default for Args {
+    fn default() -> Self {
+        Self {
+            command: Some(Command::Info),
+            path: None,
+            recursive: false,
+            job_id: None,
+            verbose: false,
+        }
+    }
 }
 
 #[derive(clap::ValueEnum, Clone, Debug)]
@@ -46,4 +64,6 @@ pub enum Command {
     Status,
     /// Terminate a specific job
     Terminate,
+    /// Show service information and available commands
+    Info,
 }
