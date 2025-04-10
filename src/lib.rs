@@ -34,8 +34,8 @@ pub struct Args {
     pub recursive: bool,
 
     /// YouTube URL (required for transcribe-youtube command)
-    #[arg(long)]
-    pub youtube_url: Option<String>,
+    #[arg(long = "url")]
+    pub url: Option<String>,
 
     /// Output directory for downloaded YouTube videos and transcriptions
     #[arg(long)]
@@ -58,7 +58,7 @@ impl Default for Args {
             recursive: false,
             job_id: None,
             verbose: false,
-            youtube_url: None,
+            url: None,
             output_dir: None,
         }
     }

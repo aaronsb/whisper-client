@@ -33,11 +33,12 @@ pub fn download_youtube_video(url: &str, output_dir: &PathBuf) -> Result<PathBuf
         anyhow::bail!("yt-dlp error: {}", String::from_utf8_lossy(&output.stderr));
     }
 
-    // Assuming the video is downloaded as the first file in the output directory
+    // Find the most recently modified file in the output directory
     let video_path = std::fs::read_dir(output_dir)?
-        .next()
-        .context("No video file found in output directory")?
-        .map(|entry| entry.path())?;
+        .filter_map(Result::ok)
+        .max_by_key(|entry| entry.metadata().map(|m| m.modified().unwrap()).unwrap_or(std::time::SystemTime::UNIX_EPOCH))
+        .map(|entry| entry.path())
+        .context("No video file found in output directory")?;
 
     Ok(video_path)
 }

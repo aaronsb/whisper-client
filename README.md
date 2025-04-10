@@ -5,6 +5,7 @@ A command-line client for transcribing audio files using OpenAI's Whisper model 
 ## Features
 
 - Transcribe audio files to text using Whisper
+- Transcribe YouTube videos by URL
 - Support for batch processing directories of audio files
 - Track transcription job status
 - View job history
@@ -63,6 +64,11 @@ Edit this file to point to your whisper-service instance if it's running on a di
 ## Usage
 
 For detailed usage instructions, see the [usage guide](docs/usage.md).
+
+### Transcribe a YouTube Video
+```bash
+whisper-client transcribe-youtube --url YOUTUBE_URL
+```
 
 ### Transcribe a Single File
 ```bash

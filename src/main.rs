@@ -78,6 +78,7 @@ async fn display_service_info() -> Result<()> {
     // Display available commands
     println!("\n{} Available Commands:", "📋".blue());
     println!("   {} {:<12} - Convert audio file(s) to text", "🎵".green(), "transcribe");
+    println!("   {} {:<12} - Transcribe YouTube video by URL", "📺".green(), "transcribe-youtube");
     println!("   {} {:<12} - View all transcription jobs", "📜".green(), "list-jobs");
     println!("   {} {:<12} - Check status of a specific job", "🔍".green(), "status");
     println!("   {} {:<12} - Cancel a running job", "🛑".green(), "terminate");
@@ -85,6 +86,7 @@ async fn display_service_info() -> Result<()> {
     println!("\n{} Example Usage:", "💡".yellow());
     println!("   whisper-client transcribe audio.mp3");
     println!("   whisper-client transcribe ./recordings/ --recursive");
+    println!("   whisper-client transcribe-youtube --url <YOUTUBE_URL>");
     println!("   whisper-client list-jobs");
     println!("   whisper-client status --job-id <ID>");
     println!("   whisper-client terminate --job-id <ID>");
@@ -184,13 +186,13 @@ async fn main() -> Result<()> {
         }
         Command::TranscribeYoutube => {
             // Validate required arguments
-            if args.youtube_url.is_none() {
+            if args.url.is_none() {
                 println!("{} Error: Missing required --url argument for transcribe-youtube command", "✗".red());
                 println!("{} Usage: whisper-client transcribe-youtube --url <YOUTUBE_URL>", "ℹ️".blue());
                 std::process::exit(1);
             }
             
-            let youtube_url = args.youtube_url.unwrap();
+            let youtube_url = args.url.unwrap();
             let output_dir = args.output_dir.unwrap_or_else(|| std::env::current_dir().unwrap());
             
             // Check for yt-dlp and ffmpeg
