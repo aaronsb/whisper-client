@@ -1,5 +1,7 @@
 use anyhow::Result;
 use colored::*;
+mod youtube;
+
 use whisper_client::{
     Args, Command,
     check_service, list_jobs, get_job_status, transcribe_file, terminate_job,
@@ -27,8 +29,9 @@ async fn display_service_info() -> Result<()> {
                 let mut status_counts: HashMap<String, usize> = HashMap::new();
                 for job in &jobs {
                     *status_counts.entry(job.status.clone()).or_insert(0) += 1;
-                }
-                
+                    
+                } // Close the for loop
+
                 // Display job summary
                 if !jobs.is_empty() {
                     println!("\n{} Job Summary:", "📊".blue());
@@ -42,7 +45,7 @@ async fn display_service_info() -> Result<()> {
                         };
                         println!("   {} {} jobs {}", status_icon, count, status);
                     }
-                    
+                            
                     // Show most recent active jobs (up to 5)
                     let active_jobs: Vec<_> = jobs.iter()
                         .filter(|j| j.status == "processing" || j.status == "queued")
@@ -75,6 +78,7 @@ async fn display_service_info() -> Result<()> {
     // Display available commands
     println!("\n{} Available Commands:", "📋".blue());
     println!("   {} {:<12} - Convert audio file(s) to text", "🎵".green(), "transcribe");
+    println!("   {} {:<12} - Transcribe YouTube video by URL", "📺".green(), "transcribe-youtube");
     println!("   {} {:<12} - View all transcription jobs", "📜".green(), "list-jobs");
     println!("   {} {:<12} - Check status of a specific job", "🔍".green(), "status");
     println!("   {} {:<12} - Cancel a running job", "🛑".green(), "terminate");
@@ -82,6 +86,7 @@ async fn display_service_info() -> Result<()> {
     println!("\n{} Example Usage:", "💡".yellow());
     println!("   whisper-client transcribe audio.mp3");
     println!("   whisper-client transcribe ./recordings/ --recursive");
+    println!("   whisper-client transcribe-youtube --url <YOUTUBE_URL>");
     println!("   whisper-client list-jobs");
     println!("   whisper-client status --job-id <ID>");
     println!("   whisper-client terminate --job-id <ID>");
@@ -178,6 +183,28 @@ async fn main() -> Result<()> {
             }
             
             process_batch(files, args.verbose).await?;
+        }
+        Command::TranscribeYoutube => {
+            // Validate required arguments
+            if args.url.is_none() {
+                println!("{} Error: Missing required --url argument for transcribe-youtube command", "✗".red());
+                println!("{} Usage: whisper-client transcribe-youtube --url <YOUTUBE_URL>", "ℹ️".blue());
+                std::process::exit(1);
+            }
+            
+            let youtube_url = args.url.unwrap();
+            let output_dir = args.output_dir.unwrap_or_else(|| std::env::current_dir().unwrap());
+            
+            // Check for yt-dlp and ffmpeg
+            youtube::check_yt_dlp_installed().expect("yt-dlp is not installed");
+            youtube::check_ffmpeg_installed().expect("ffmpeg is not installed");
+            
+            // Download and convert
+            let video_path = youtube::download_youtube_video(&youtube_url, &output_dir).expect("Failed to download video");
+            let audio_file = youtube::convert_to_audio(&video_path).expect("Failed to convert video to audio");
+            
+            // Use existing transcription flow
+            process_batch(vec![audio_file], args.verbose).await?;
         }
         Command::ListJobs => {
             match list_jobs().await {

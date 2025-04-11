@@ -24,6 +24,31 @@ whisper-client transcribe recording.mp3 --verbose
 whisper-client transcribe ./audio_files --recursive
 ```
 
+### Transcribe YouTube
+
+Transcribe a YouTube video by URL:
+
+```bash
+whisper-client transcribe-youtube --url YOUTUBE_URL [--output-dir OUTPUT_DIR] [--verbose]
+```
+
+- `--url YOUTUBE_URL`: URL of the YouTube video to transcribe
+- `--output-dir OUTPUT_DIR`: Directory to save the downloaded video and transcription
+- `--verbose` or `-v`: Show detailed output including segments
+
+Example:
+```bash
+whisper-client transcribe-youtube --url https://www.youtube.com/watch?v=dQw4w9WgXcQ --verbose
+```
+
+**Note**: Ensure `yt-dlp` and `ffmpeg` are installed and available in your PATH.
+
+Error Handling:
+- If the video cannot be downloaded, an error message will be displayed, and the process will terminate. The user is responsible for investigating the issue.
+
+Temporary Storage:
+- Downloaded videos are stored temporarily in the specified output directory. Ensure sufficient space is available.
+
 ### List Jobs
 
 List all jobs on the Whisper service:

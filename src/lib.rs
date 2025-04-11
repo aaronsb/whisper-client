@@ -33,6 +33,14 @@ pub struct Args {
     #[arg(short, long)]
     pub recursive: bool,
 
+    /// YouTube URL (required for transcribe-youtube command)
+    #[arg(long = "url")]
+    pub url: Option<String>,
+
+    /// Output directory for downloaded YouTube videos and transcriptions
+    #[arg(long)]
+    pub output_dir: Option<std::path::PathBuf>,
+
     /// Job ID (required for status and terminate commands)
     #[arg(name = "JOB_ID", long)]
     pub job_id: Option<String>,
@@ -50,6 +58,8 @@ impl Default for Args {
             recursive: false,
             job_id: None,
             verbose: false,
+            url: None,
+            output_dir: None,
         }
     }
 }
@@ -58,6 +68,8 @@ impl Default for Args {
 pub enum Command {
     /// Transcribe an audio file or directory
     Transcribe,
+    /// Transcribe a YouTube video by URL
+    TranscribeYoutube,
     /// List all jobs
     ListJobs,
     /// Get status of a specific job
