@@ -124,6 +124,7 @@ The client supports common audio formats including:
 - M4A
 - FLAC
 - OGG
+- MKV
 
 ## Error Handling
 

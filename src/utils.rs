@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::models::{TranscriptionResponse, JobResponse};
 
 pub fn is_supported_audio_format(path: &PathBuf) -> bool {
-    let supported = ["mp3", "wav", "m4a", "ogg", "flac"];
+    let supported = ["mp3", "wav", "m4a", "ogg", "flac", "mkv"];
     path.extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| supported.contains(&ext.to_lowercase().as_str()))
