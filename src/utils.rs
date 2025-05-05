@@ -2,8 +2,12 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 use crate::models::{TranscriptionResponse, JobResponse};
 
+pub fn get_supported_formats() -> Vec<&'static str> {
+    vec!["mp3", "wav", "m4a", "ogg", "flac", "mkv", "mp4"]
+}
+
 pub fn is_supported_audio_format(path: &PathBuf) -> bool {
-    let supported = ["mp3", "wav", "m4a", "ogg", "flac", "mkv"];
+    let supported = get_supported_formats();
     path.extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| supported.contains(&ext.to_lowercase().as_str()))

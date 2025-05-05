@@ -5,7 +5,7 @@ mod youtube;
 use whisper_client::{
     Args, Command,
     check_service, list_jobs, get_job_status, transcribe_file, terminate_job,
-    collect_audio_files, save_markdown_response, Config,
+    collect_audio_files, save_markdown_response, get_supported_formats, Config,
 };
 use clap::Parser;
 use std::collections::HashMap;
@@ -82,6 +82,10 @@ async fn display_service_info() -> Result<()> {
     println!("   {} {:<12} - View all transcription jobs", "📜".green(), "list-jobs");
     println!("   {} {:<12} - Check status of a specific job", "🔍".green(), "status");
     println!("   {} {:<12} - Cancel a running job", "🛑".green(), "terminate");
+    
+    // Display supported file formats
+    println!("\n{} Supported File Formats:", "🔊".blue());
+    println!("   {}", get_supported_formats().join(", "));
     
     println!("\n{} Example Usage:", "💡".yellow());
     println!("   whisper-client transcribe audio.mp3");

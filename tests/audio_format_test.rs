@@ -11,6 +11,7 @@ fn test_supported_audio_formats() {
         ("test.ogg", true),
         ("test.flac", true),
         ("test.mkv", true),
+        ("test.mp4", true),
         ("test.txt", false),
         ("test.pdf", false),
         ("test", false),
@@ -47,6 +48,7 @@ fn test_mime_types() {
         ("test.ogg", vec!["audio/ogg", "application/ogg"]),
         ("test.flac", vec!["audio/flac", "audio/x-flac"]),
         ("test.mkv", vec!["video/x-matroska"]),
+        ("test.mp4", vec!["video/mp4"]),
     ];
 
     for (file, expected_mimes) in formats {
